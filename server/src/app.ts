@@ -13,11 +13,14 @@ import { HttpError } from "./errors.js";
 import type { LLMProvider } from "./llm.js";
 import { conversationsRouter } from "./routes/conversations.js";
 import { messagesRouter } from "./routes/messages.js";
+import { telegramWebhookRouter } from "./routes/telegram-webhook.js";
+import type { TelegramStore } from "./telegram-store.js";
 
 export interface AppDeps {
   config: Config;
   repo: Repository;
   provider: LLMProvider | null;
+  telegramWebhook?: { store: TelegramStore; secret: string };
 }
 
 const limitedResponse = (message: string) => ({
@@ -67,7 +70,7 @@ function requireDemoLogin(config: Config): RequestHandler {
   };
 }
 
-export function createApp({ config, repo, provider }: AppDeps) {
+export function createApp({ config, repo, provider, telegramWebhook }: AppDeps) {
   const app = express();
   app.disable("x-powered-by");
   if (config.trustProxy) app.set("trust proxy", 1);
@@ -87,6 +90,12 @@ export function createApp({ config, repo, provider }: AppDeps) {
       res.status(503).json({ ok: false });
     }
   });
+
+  // Telegram's webhook is authenticated by its dedicated secret header, not the website's
+  // shared Basic Auth. Mount it before requireDemoLogin so Telegram can reach it.
+  if (telegramWebhook) {
+    app.use("/api/telegram/webhook", telegramWebhookRouter(telegramWebhook.store, telegramWebhook.secret));
+  }
 
   if (config.appUsername && config.appPassword) {
     // Count failed login attempts, but do not penalize correctly authenticated requests.

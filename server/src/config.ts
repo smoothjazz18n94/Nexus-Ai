@@ -31,6 +31,10 @@ export interface Config {
   /** Optional shared demo login. Both values are required together. */
   appUsername?: string;
   appPassword?: string;
+  /** Telegram bot API token; only configured on the server. */
+  telegramBotToken?: string;
+  /** Secret Telegram sends in X-Telegram-Bot-Api-Secret-Token. */
+  telegramWebhookSecret?: string;
 }
 
 export const DEFAULT_MODEL = "gemini-3.5-flash-lite";
@@ -48,6 +52,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const isPlaceholder = !!rawKey && PLACEHOLDER.test(rawKey);
   const appUsername = env.APP_USERNAME?.trim() || undefined;
   const appPassword = env.APP_PASSWORD || undefined;
+  const telegramBotToken = env.TELEGRAM_BOT_TOKEN?.trim() || undefined;
+  const telegramWebhookSecret = env.TELEGRAM_WEBHOOK_SECRET?.trim() || undefined;
 
   if (Boolean(appUsername) !== Boolean(appPassword)) {
     throw new Error("APP_USERNAME and APP_PASSWORD must be configured together.");
@@ -60,6 +66,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   if (env.NODE_ENV === "production" && (!appUsername || !appPassword)) {
     throw new Error("APP_USERNAME and APP_PASSWORD are required in production to protect the shared demo workspace.");
+  }
+  if (Boolean(telegramBotToken) !== Boolean(telegramWebhookSecret)) {
+    throw new Error("TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET must be configured together.");
+  }
+  if (telegramBotToken && !/^\d+:[A-Za-z0-9_-]{20,}$/.test(telegramBotToken)) {
+    throw new Error("TELEGRAM_BOT_TOKEN does not look like a valid Telegram bot token.");
+  }
+  if (telegramWebhookSecret && !/^[A-Za-z0-9_-]{32,256}$/.test(telegramWebhookSecret)) {
+    throw new Error("TELEGRAM_WEBHOOK_SECRET must be 32-256 characters using letters, numbers, _ or -.");
+  }
+  if (telegramBotToken && !env.DATABASE_URL?.trim()) {
+    throw new Error("Telegram integration requires DATABASE_URL and a PostgreSQL database.");
   }
 
   return {
@@ -78,5 +96,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     trustProxy: env.TRUST_PROXY === "true",
     ...(appUsername ? { appUsername } : {}),
     ...(appPassword ? { appPassword } : {}),
+    ...(telegramBotToken ? { telegramBotToken } : {}),
+    ...(telegramWebhookSecret ? { telegramWebhookSecret } : {}),
   };
 }

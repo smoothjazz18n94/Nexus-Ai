@@ -418,3 +418,24 @@ None of these are implemented yet:
 ## License
 
 Released under the MIT License. See [LICENSE](LICENSE).
+
+## Telegram bot integration
+
+The optional Telegram integration runs on the same Express service as the web app. It uses the existing Gemini provider and stores Telegram user histories separately in Neon PostgreSQL (`telegram_users`, `telegram_messages`). Only private Telegram chats are supported; group chats are asked to switch to a private chat.
+
+Configure these server environment variables in Render:
+
+- `TELEGRAM_BOT_TOKEN`: token from @BotFather (keep private).
+- `TELEGRAM_WEBHOOK_SECRET`: random 32-256 character value containing only letters, digits, `_` or `-`.
+
+When both values are configured and `DATABASE_URL` points to Neon, the server creates the Telegram schema during startup, exposes `POST /api/telegram/webhook` before website Basic Auth, validates Telegram's `X-Telegram-Bot-Api-Secret-Token` header, and starts a PostgreSQL-backed update worker. The worker is idempotent for duplicate Telegram update IDs and limits each user using `CHAT_RATE_LIMIT_PER_MINUTE`.
+
+To register the webhook from a trusted local machine, add the same `TELEGRAM_BOT_TOKEN` and `TELEGRAM_WEBHOOK_SECRET` to the root `.env` temporarily (never commit or share `.env`), set `TELEGRAM_WEBHOOK_URL` to `https://<your-render-service>/api/telegram/webhook`, then run:
+
+```bash
+npm run telegram:set-webhook -w server
+```
+
+The script prints the webhook URL but never prints the token or secret. You can then remove the two Telegram secrets from your local `.env`; keep them in Render's Environment settings.
+
+Supported commands: `/start`, `/help`, `/reset`. Normal text messages are sent to Gemini with the user's recent Telegram history. Telegram histories are separate from the shared web demo workspace.

@@ -9,7 +9,8 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "migrate:neon": "tsx scripts/migrate-sqlite-to-neon.ts"
+    "migrate:neon": "tsx scripts/migrate-sqlite-to-neon.ts",
+    "telegram:set-webhook": "node scripts/set-telegram-webhook.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.31.0",

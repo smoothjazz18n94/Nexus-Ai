@@ -24,4 +24,19 @@ describe("loadConfig", () => {
     expect(c.model).toBe("gemini-3.8-flash");
     expect(c.requestTimeoutMs).toBe(30_000);
   });
+  it("requires Telegram token and webhook secret together", () => {
+    expect(() => loadConfig({ TELEGRAM_BOT_TOKEN: "123456:abcdefghijklmnopqrstuvwxyz" } as NodeJS.ProcessEnv)).toThrow(/configured together/);
+    expect(() => loadConfig({ TELEGRAM_WEBHOOK_SECRET: "a".repeat(32) } as NodeJS.ProcessEnv)).toThrow(/configured together/);
+  });
+
+  it("accepts a valid Telegram configuration", () => {
+    const c = loadConfig({
+      DATABASE_URL: "postgres://example",
+      TELEGRAM_BOT_TOKEN: "123456:abcdefghijklmnopqrstuvwxyz",
+      TELEGRAM_WEBHOOK_SECRET: "a".repeat(40),
+    } as NodeJS.ProcessEnv);
+    expect(c.telegramBotToken).toBe("123456:abcdefghijklmnopqrstuvwxyz");
+    expect(c.telegramWebhookSecret).toBe("a".repeat(40));
+  });
+
 });
