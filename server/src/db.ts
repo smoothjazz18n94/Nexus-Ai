@@ -41,10 +41,26 @@ export function escapeLike(input: string): string {
 }
 
 /**
- * The only place that talks to SQLite. All queries use bound parameters (the `?`),
- * which is what prevents SQL injection.
+ * Repository contract shared by the SQLite local/test adapter and the Neon adapter.
+ * All operations are asynchronous so production PostgreSQL queries never block Express.
  */
-export class Repository {
+export interface Repository {
+  ping(): Promise<void>;
+  close(): Promise<void>;
+  listConversations(q?: string): Promise<ConversationRow[]>;
+  createConversation(title?: string, mode?: Mode): Promise<ConversationRow>;
+  getConversation(id: string): Promise<ConversationRow | undefined>;
+  renameConversation(id: string, title: string): Promise<ConversationRow | undefined>;
+  setMode(id: string, mode: Mode): Promise<void>;
+  touch(id: string): Promise<void>;
+  deleteConversation(id: string): Promise<boolean>;
+  listMessages(conversationId: string): Promise<MessageRow[]>;
+  addMessage(conversationId: string, role: Role, content: string): Promise<MessageRow>;
+  deleteMessage(id: string): Promise<void>;
+}
+
+/** SQLite adapter retained for local fallback and fast isolated API tests. */
+export class SqliteRepository implements Repository {
   private db: Database.Database;
 
   constructor(path: string) {
@@ -55,9 +71,15 @@ export class Repository {
     this.db.exec(SCHEMA);
   }
 
-  close() { this.db.close(); }
+  async ping(): Promise<void> {
+    this.db.prepare("SELECT 1").get();
+  }
 
-  listConversations(q?: string): ConversationRow[] {
+  async close(): Promise<void> {
+    this.db.close();
+  }
+
+  async listConversations(q?: string): Promise<ConversationRow[]> {
     if (!q) {
       return (this.db.prepare("SELECT * FROM conversations ORDER BY updated_at DESC").all() as ConvDb[]).map(toConv);
     }
@@ -73,36 +95,40 @@ export class Repository {
     return rows.map(toConv);
   }
 
-  createConversation(title: string = DEFAULT_TITLE, mode: Mode = "chat"): ConversationRow {
+  async createConversation(title: string = DEFAULT_TITLE, mode: Mode = "chat"): Promise<ConversationRow> {
     const now = new Date().toISOString();
     const id = randomUUID();
     this.db.prepare("INSERT INTO conversations (id,title,mode,created_at,updated_at) VALUES (?,?,?,?,?)").run(id, title, mode, now, now);
-    return this.getConversation(id)!;
+    return this.getConversationSync(id)!;
   }
 
-  getConversation(id: string): ConversationRow | undefined {
+  async getConversation(id: string): Promise<ConversationRow | undefined> {
+    return this.getConversationSync(id);
+  }
+
+  private getConversationSync(id: string): ConversationRow | undefined {
     const r = this.db.prepare("SELECT * FROM conversations WHERE id = ?").get(id) as ConvDb | undefined;
     return r && toConv(r);
   }
 
-  renameConversation(id: string, title: string): ConversationRow | undefined {
+  async renameConversation(id: string, title: string): Promise<ConversationRow | undefined> {
     this.db.prepare("UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?").run(title, new Date().toISOString(), id);
-    return this.getConversation(id);
+    return this.getConversationSync(id);
   }
 
-  setMode(id: string, mode: Mode) {
+  async setMode(id: string, mode: Mode): Promise<void> {
     this.db.prepare("UPDATE conversations SET mode = ? WHERE id = ?").run(mode, id);
   }
 
-  touch(id: string) {
+  async touch(id: string): Promise<void> {
     this.db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), id);
   }
 
-  deleteConversation(id: string): boolean {
+  async deleteConversation(id: string): Promise<boolean> {
     return this.db.prepare("DELETE FROM conversations WHERE id = ?").run(id).changes > 0;
   }
 
-  listMessages(conversationId: string): MessageRow[] {
+  async listMessages(conversationId: string): Promise<MessageRow[]> {
     // rowid preserves insertion order even if two messages share a timestamp.
     const rows = this.db
       .prepare("SELECT *, rowid AS seq FROM messages WHERE conversation_id = ? ORDER BY seq ASC")
@@ -110,15 +136,15 @@ export class Repository {
     return rows.map(toMsg);
   }
 
-  addMessage(conversationId: string, role: Role, content: string): MessageRow {
+  async addMessage(conversationId: string, role: Role, content: string): Promise<MessageRow> {
     const id = randomUUID();
     const now = new Date().toISOString();
     this.db.prepare("INSERT INTO messages (id,conversation_id,role,content,created_at) VALUES (?,?,?,?,?)").run(id, conversationId, role, content, now);
-    this.touch(conversationId);
+    this.db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(now, conversationId);
     return { id, conversationId, role, content, createdAt: now };
   }
 
-  deleteMessage(id: string) {
+  async deleteMessage(id: string): Promise<void> {
     this.db.prepare("DELETE FROM messages WHERE id = ?").run(id);
   }
 }

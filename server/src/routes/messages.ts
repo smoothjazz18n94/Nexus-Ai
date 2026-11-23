@@ -25,7 +25,7 @@ export function messagesRouter(repo: Repository, provider: LLMProvider | null, c
   r.post("/:id/messages", async (req, res) => {
     const id = idParam.parse(req.params.id);
     const body = bodySchema.parse(req.body);
-    const conv = repo.getConversation(id);
+    const conv = await repo.getConversation(id);
     if (!conv) throw new HttpError(404, "not_found", "Conversation not found");
     if (!provider) {
       throw new HttpError(503, "not_configured", "The AI provider is not configured. Set GEMINI_API_KEY in the server's .env file and restart.");
@@ -33,22 +33,22 @@ export function messagesRouter(repo: Repository, provider: LLMProvider | null, c
 
     // 1) Update stored state *before* calling the model.
     if (body.regenerate) {
-      const msgs = repo.listMessages(id);
+      const msgs = await repo.listMessages(id);
       const last = msgs[msgs.length - 1];
-      if (last?.role === "assistant") repo.deleteMessage(last.id);
-      const after = repo.listMessages(id);
+      if (last?.role === "assistant") await repo.deleteMessage(last.id);
+      const after = await repo.listMessages(id);
       if (after[after.length - 1]?.role !== "user") {
         throw new HttpError(400, "validation", "There is nothing to retry in this conversation.");
       }
     } else {
-      const isFirst = repo.listMessages(id).length === 0;
-      repo.addMessage(id, "user", body.content!);
-      if (isFirst && conv.title === DEFAULT_TITLE) repo.renameConversation(id, titleFromContent(body.content!));
+      const isFirst = (await repo.listMessages(id)).length === 0;
+      await repo.addMessage(id, "user", body.content!);
+      if (isFirst && conv.title === DEFAULT_TITLE) await repo.renameConversation(id, titleFromContent(body.content!));
     }
-    repo.setMode(id, body.mode);
+    await repo.setMode(id, body.mode);
 
     const context = buildContext(
-      repo.listMessages(id).map((m) => ({ role: m.role, content: m.content })),
+      (await repo.listMessages(id)).map((m) => ({ role: m.role, content: m.content })),
       config.contextCharBudget,
     );
 
@@ -72,18 +72,18 @@ export function messagesRouter(repo: Repository, provider: LLMProvider | null, c
         if (!controller.signal.aborted) sse(res, "delta", { text: chunk });
       }
       if (controller.signal.aborted) {
-        if (text) repo.addMessage(id, "assistant", text);
+        if (text) await repo.addMessage(id, "assistant", text);
         return void res.end();
       }
       if (!text.trim()) throw new Error("Empty response from provider");
-      const saved = repo.addMessage(id, "assistant", text);
-      sse(res, "done", { message: saved, conversation: repo.getConversation(id) });
+      const saved = await repo.addMessage(id, "assistant", text);
+      sse(res, "done", { message: saved, conversation: await repo.getConversation(id) });
     } catch (err) {
       if (controller.signal.aborted) {
-        if (text) repo.addMessage(id, "assistant", text);
+        if (text) await repo.addMessage(id, "assistant", text);
         return void res.end();
       }
-      if (text) repo.addMessage(id, "assistant", text); // keep partial output; Retry will replace it
+      if (text) await repo.addMessage(id, "assistant", text); // keep partial output; Retry will replace it
       // Log only the error type and HTTP status (never the key or request body).
       console.error("[chat] provider error:", (err as object)?.constructor?.name ?? "unknown", (err as { status?: number })?.status ?? "");
       sse(res, "error", toPublicProviderError(err));

@@ -1,7 +1,7 @@
 import request from "supertest";
 import { createApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
-import { Repository } from "../src/db.js";
+import { SqliteRepository } from "../src/db.js";
 import type { LLMProvider, StreamParams } from "../src/llm.js";
 
 export type FakeBehavior = (params: StreamParams) => AsyncIterable<string>;
@@ -22,8 +22,9 @@ export async function* chunks(...parts: string[]) {
 }
 
 export function makeApp(provider: LLMProvider | null, overrides: Record<string, string> = {}) {
+  // Tests deliberately use in-memory SQLite and never connect to the user's Neon project.
   const config = loadConfig({ DATABASE_PATH: ":memory:", ...overrides } as NodeJS.ProcessEnv);
-  const repo = new Repository(":memory:");
+  const repo = new SqliteRepository(":memory:");
   const app = createApp({ config, repo, provider });
   return { app, repo, config };
 }

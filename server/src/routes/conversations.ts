@@ -6,37 +6,37 @@ import { createConversationBody, idParam, listQuery, renameConversationBody } fr
 export function conversationsRouter(repo: Repository) {
   const r = Router();
 
-  const getOr404 = (rawId: string) => {
+  const getOr404 = async (rawId: string) => {
     const id = idParam.parse(rawId);
-    const conv = repo.getConversation(id);
+    const conv = await repo.getConversation(id);
     if (!conv) throw new HttpError(404, "not_found", "Conversation not found");
     return conv;
   };
 
-  r.get("/", (req, res) => {
+  r.get("/", async (req, res) => {
     const { q } = listQuery.parse(req.query);
-    res.json({ conversations: repo.listConversations(q) });
+    res.json({ conversations: await repo.listConversations(q) });
   });
 
-  r.post("/", (req, res) => {
+  r.post("/", async (req, res) => {
     const body = createConversationBody.parse(req.body ?? {});
-    res.status(201).json({ conversation: repo.createConversation(body.title, body.mode) });
+    res.status(201).json({ conversation: await repo.createConversation(body.title, body.mode) });
   });
 
-  r.get("/:id", (req, res) => {
-    const conversation = getOr404(req.params.id);
-    res.json({ conversation, messages: repo.listMessages(conversation.id) });
+  r.get("/:id", async (req, res) => {
+    const conversation = await getOr404(req.params.id);
+    res.json({ conversation, messages: await repo.listMessages(conversation.id) });
   });
 
-  r.patch("/:id", (req, res) => {
-    const conv = getOr404(req.params.id);
+  r.patch("/:id", async (req, res) => {
+    const conv = await getOr404(req.params.id);
     const { title } = renameConversationBody.parse(req.body);
-    res.json({ conversation: repo.renameConversation(conv.id, title) });
+    res.json({ conversation: await repo.renameConversation(conv.id, title) });
   });
 
-  r.delete("/:id", (req, res) => {
-    const conv = getOr404(req.params.id);
-    repo.deleteConversation(conv.id);
+  r.delete("/:id", async (req, res) => {
+    const conv = await getOr404(req.params.id);
+    await repo.deleteConversation(conv.id);
     res.status(204).end();
   });
 

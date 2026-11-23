@@ -1,10 +1,15 @@
 import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
-import { Repository } from "./db.js";
+import { SqliteRepository, type Repository } from "./db.js";
+import { createPostgresRepository } from "./postgres-db.js";
 import { createGeminiProvider } from "./llm.js";
 
 const config = loadConfig();
-const repo = new Repository(config.databasePath);
+// Prefer Neon whenever DATABASE_URL is configured; SQLite remains the local/test fallback.
+const repo: Repository = config.databaseUrl
+  ? await createPostgresRepository(config.databaseUrl)
+  : new SqliteRepository(config.databasePath);
+
 const provider = config.geminiApiKey
   ? createGeminiProvider({
       apiKey: config.geminiApiKey,
@@ -22,10 +27,13 @@ if (config.geminiKeyIsPlaceholder) {
 
 const app = createApp({ config, repo, provider });
 const server = app.listen(config.port, () => {
-  // Never print the key itself.
-  console.log(`Nexus AI server listening on http://localhost:${config.port} (AI ${provider ? `on, Gemini model ${config.model}` : "off"})`);
+  console.log(`Nexus AI server listening on http://localhost:${config.port} (Database ${config.databaseUrl ? "Neon PostgreSQL" : "SQLite"}; AI ${provider ? `on, Gemini model ${config.model}` : "off"})`);
 });
 
-const shutdown = () => { server.close(() => { repo.close(); process.exit(0); }); };
+const shutdown = () => {
+  server.close(() => {
+    void repo.close().finally(() => process.exit(0));
+  });
+};
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

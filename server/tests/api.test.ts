@@ -33,7 +33,7 @@ describe("conversation CRUD", () => {
   it("search treats % and _ literally and also searches message text", async () => {
     const { app, repo } = makeApp(ok().provider);
     const a = await newConv(app, { title: "A" });
-    repo.addMessage(a.id, "user", "growth was 100% last year");
+    await repo.addMessage(a.id, "user", "growth was 100% last year");
     expect((await request(app).get("/api/conversations").query({ q: "100%" })).body.conversations).toHaveLength(1);
     expect((await request(app).get("/api/conversations").query({ q: "%" })).body.conversations).toHaveLength(1);
     expect((await request(app).get("/api/conversations").query({ q: "10_" })).body.conversations).toHaveLength(0);
@@ -117,6 +117,41 @@ describe("streaming chat", () => {
     expect(res.status).toBe(503);
     expect(res.body.error.code).toBe("not_configured");
     expect((await request(app).get("/api/health")).body.aiConfigured).toBe(false);
+  });
+});
+
+describe("shared demo login", () => {
+  const demoCredentials = {
+    APP_USERNAME: "portfolio-demo",
+    APP_PASSWORD: "a-long-test-password-12345",
+  };
+
+  it("protects API routes with a browser Basic Auth challenge", async () => {
+    const { app } = makeApp(ok().provider, demoCredentials);
+    const denied = await request(app).get("/api/conversations");
+    expect(denied.status).toBe(401);
+    expect(denied.headers["www-authenticate"]).toContain('Basic realm="Nexus AI Demo"');
+
+    const allowed = await request(app)
+      .get("/api/conversations")
+      .auth(demoCredentials.APP_USERNAME, demoCredentials.APP_PASSWORD);
+    expect(allowed.status).toBe(200);
+    expect(allowed.body.conversations).toEqual([]);
+  });
+
+  it("keeps the low-information Render health check public but protects detailed health", async () => {
+    const { app } = makeApp(ok().provider, demoCredentials);
+    const publicHealth = await request(app).get("/healthz");
+    expect(publicHealth.status).toBe(200);
+    expect(publicHealth.body).toEqual({ ok: true });
+
+    const privateHealth = await request(app).get("/api/health");
+    expect(privateHealth.status).toBe(401);
+    const authenticatedHealth = await request(app)
+      .get("/api/health")
+      .auth(demoCredentials.APP_USERNAME, demoCredentials.APP_PASSWORD);
+    expect(authenticatedHealth.status).toBe(200);
+    expect(authenticatedHealth.body.database).toBe("connected");
   });
 });
 
